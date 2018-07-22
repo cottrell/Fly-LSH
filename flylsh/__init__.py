@@ -23,12 +23,12 @@ class flylsh(object):
         whereas in usual LSH they are
         """
         self.embedding_size = embedding_size
-        if scipy.sparse.issparse(data):
+        if scipy.sparse.issparse(data): # sparse random projections might not make sense for sparse inputs, just messing around
             self.data = data
             mean_shift_nonzero_sparse(self.data)
         else:
             self.data = (data - np.mean(data, axis=1)[:, None])
-        weights = np.random.random((data.shape[1], embedding_size))
+        weights = np.random.random((data.shape[1], embedding_size)) # TODO think about sparse inputs here
         self.weights = (weights > 1 - sampling_ratio)  # sparse projection vectors
         all_activations = (self.data @ self.weights) # @ is np.matmul
         # nth largest for each row, see np or bottleneck partition as well
@@ -37,7 +37,11 @@ class flylsh(object):
 
     def query(self, qidx, nnn):
         """ get nearest neighbours """
-        L1_distances = np.sum(np.abs(self.hashes[qidx, :] - self.hashes), axis=1)
+        L1_distances = np.sum(np.abs(np.logical_xor(self.hashes[qidx, :], self.hashes).astype(int)), axis=1)
+        # _L1_distances = np.sum(np.abs(self.hashes[qidx, :].astype(int) - self.hashes.astype(int)), axis=1) # '-' boolean is deprecated
+        # check = L1_distances.astype(int) - _L1_distances
+        # assert np.max(np.abs(check)) == 0, 'not ok'
+        # print('yep ok')
         NNs = L1_distances.argsort()[1:nnn + 1]
         # print(L1_distances[NNs]) #an interesting property of this hash is that the L1 distances are always even
         return NNs
