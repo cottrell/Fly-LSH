@@ -1,5 +1,16 @@
 import numpy as np
+import scipy.sparse
 
+def mean_shift_nonzero_sparse(data):
+    # probably inplace
+    assert scipy.sparse.isspmatrix_csr(data), 'must use csr format'
+    # adjust zero elements only ... kind of strange
+    m = np.array(data.sum(axis=1)).squeeze()
+    # nonzero_per_row = np.diff(data.indptr) # https://stackoverflow.com/questions/3797158/counting-non-zero-elements-within-each-row-and-within-each-column-of-a-2d-numpy
+    nonzero_per_row = data.getnnz(axis=1)
+    data_mean = m / np.maximum(0, nonzero_per_row)
+    data.data -= data_mean[data.indices]
+    return data
 
 class flylsh(object):
     def __init__(self, data, hash_length, sampling_ratio, embedding_size):
@@ -12,15 +23,20 @@ class flylsh(object):
         whereas in usual LSH they are
         """
         self.embedding_size = embedding_size
-        self.data = (data - np.mean(data, axis=1)[:, None])
+        if scipy.sparse.issparse(data):
+            self.data = data
+            mean_shift_nonzero_sparse(self.data)
+        else:
+            self.data = (data - np.mean(data, axis=1)[:, None])
         weights = np.random.random((data.shape[1], embedding_size))
         self.weights = (weights > 1 - sampling_ratio)  # sparse projection vectors
-        all_activations = (self.data@self.weights)
+        all_activations = (self.data @ self.weights) # @ is np.matmul
+        # nth largest for each row, see np or bottleneck partition as well
         threshold = np.sort(all_activations, axis=1)[:, -hash_length][:, None]
-        # print(threshold[0])
-        self.hashes = (all_activations >= threshold)  # choose topk activations
+        self.hashes = (all_activations >= threshold)  # choose topk activations, set rest to zero
 
     def query(self, qidx, nnn):
+        """ get nearest neighbours """
         L1_distances = np.sum(np.abs(self.hashes[qidx, :] - self.hashes), axis=1)
         NNs = L1_distances.argsort()[1:nnn + 1]
         # print(L1_distances[NNs]) #an interesting property of this hash is that the L1 distances are always even
